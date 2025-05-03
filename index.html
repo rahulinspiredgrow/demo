@@ -15,25 +15,37 @@
         try {
             function App() {
                 const [file, setFile] = React.useState(null);
+                const [language, setLanguage] = React.useState("hi");
                 const [progress, setProgress] = React.useState([]);
                 const [downloadUrl, setDownloadUrl] = React.useState(null);
                 const [error, setError] = React.useState(null);
+                const [verificationResult, setVerificationResult] = React.useState(null);
 
                 const handleFileChange = (event) => {
                     setFile(event.target.files[0]);
                     setProgress([]);
                     setDownloadUrl(null);
                     setError(null);
+                    setVerificationResult(null);
+                };
+
+                const handleLanguageChange = (event) => {
+                    setLanguage(event.target.value);
+                    setProgress([]);
+                    setDownloadUrl(null);
+                    setError(null);
+                    setVerificationResult(null);
                 };
 
                 const handleUpload = async () => {
-                    if (!file) {
-                        setError("Please select a file.");
+                    if (!file || !language) {
+                        setError("Please select a file and language.");
                         return;
                     }
 
                     const formData = new FormData();
                     formData.append("file", file);
+                    formData.append("language", language);
 
                     setProgress(["Uploading file..."]);
                     try {
@@ -52,6 +64,7 @@
                         }
                         setProgress(result.progress);
                         setDownloadUrl(result.download_url);
+                        setVerificationResult(result.verification_result);
                     } catch (err) {
                         setError("Error: " + err.message);
                     }
@@ -63,6 +76,17 @@
                         <p className="text-sm text-gray-600 mb-4">
                             Note: Translated files are available for download only during the current session. Download immediately after uploading, as files may expire if the server restarts.
                         </p>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700">Select Language:</label>
+                            <select
+                                value={language}
+                                onChange={handleLanguageChange}
+                                className="mt-1 p-2 border rounded"
+                            >
+                                <option value="hi">Hindi</option>
+                                <option value="pa">Punjabi</option>
+                            </select>
+                        </div>
                         <input
                             type="file"
                             accept=".pdf"
@@ -86,8 +110,21 @@
                                 </ul>
                             </div>
                         )}
+                        {verificationResult && (
+                            <div className="mt-4">
+                                <h2 className="text-lg font-semibold">Verification Result:</h2>
+                                <p className={verificationResult.is_accurate ? "text-green-500" : "text-red-500"}>
+                                    {verificationResult.is_accurate
+                                        ? "Translation is accurate."
+                                        : "Warning: Translation may have inaccuracies in pronouns."}
+                                </p>
+                                <p>Original pronouns: {verificationResult.original_terms.join(", ") || "None"}</p>
+                                <p>Back-translated pronouns: {verificationResult.back_translated_terms.join(", ") || "None"}</p>
+                            </div>
+                        )}
                         {downloadUrl && (
                             <div className="mt-4">
+                                <p className="text-sm text-gray-600 mb-2">Download the translated PDF immediately to avoid session expiration.</p>
                                 <a
                                     href={downloadUrl}
                                     download
