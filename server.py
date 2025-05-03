@@ -46,7 +46,12 @@ def verify_translation(original, translated, src_lang):
     back_translated = translator.translate(translated, src="en", dest=src_lang).text
     original_terms = re.findall(r'\b(she|he|her|him|his)\b', original, re.IGNORECASE)
     back_terms = re.findall(r'\b(she|he|her|him|his)\b', back_translated, re.IGNORECASE)
-    return len(original_terms) == len(back_terms) and all(t1.lower() == t2.lower() for t1, t2 in zip(original_terms, back_terms))
+    is_accurate = len(original_terms) == len(back_terms) and all(t1.lower() == t2.lower() for t1, t2 in zip(original_terms, back_terms))
+    return {
+        "is_accurate": is_accurate,
+        "original_terms": original_terms,
+        "back_translated_terms": back_terms
+    }
 
 def create_pdf(text):
     buffer = io.BytesIO()
@@ -66,10 +71,14 @@ def serve_index():
 @app.route("/upload", methods=["POST"])
 def upload_file():
     progress = []
-    if "file" not in request.files:
-        return jsonify({"error": "No file uploaded"}), 400
+    if "file" not in request.files or "language" not in request.form:
+        return jsonify({"error": "File and language selection are required"}), 400
 
     file = request.files["file"]
+    lang = request.form["language"]
+    if lang not in ["hi", "pa"]:
+        return jsonify({"error": "Invalid language selected. Choose Hindi or Punjabi."}), 400
+
     file_id = str(uuid.uuid4())
     file_content = file.read()
     progress.append("File uploaded successfully.")
@@ -78,19 +87,17 @@ def upload_file():
     progress.append("Extracting text from PDF...")
     original_text = extract_text_from_pdf(io.BytesIO(file_content))
 
-    # Detect language
-    lang = "hi" if any(ord(char) >= 2304 and ord(char) <= 2431 for char in original_text) else "pa"
-    progress.append(f"Detected language: {'Hindi' if lang == 'hi' else 'Punjabi'}")
-
     # Translate
-    progress.append("Translating to English...")
+    progress.append(f"Translating from {lang == 'hi' and 'Hindi' or 'Punjabi'} to English...")
     translated_text = translate_text(original_text, lang)
 
     # Verify translation
     progress.append("Verifying translation accuracy...")
-    if not verify_translation(original_text, translated_text, lang):
-        return jsonify({"error": "Translation verification failed. Possible meaning mismatch."}), 500
-    progress.append("Translation verified successfully.")
+    verification_result = verify_translation(original_text, translated_text, lang)
+    if not verification_result["is_accurate"]:
+        progress.append("Warning: Translation may have inaccuracies in pronouns.")
+    else:
+        progress.append("Translation verified successfully.")
 
     # Store in SQLite
     try:
@@ -104,7 +111,8 @@ def upload_file():
 
     return jsonify({
         "progress": progress,
-        "download_url": f"/download/{file_id}"
+        "download_url": f"/download/{file_id}",
+        "verification_result": verification_result
     })
 
 @app.route("/download/<file_id>", methods=["GET"])
