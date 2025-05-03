@@ -73,8 +73,8 @@
                 return (
                     <div className="container mx-auto p-4">
                         <h1 className="text-2xl font-bold mb-4">PDF Translator (Hindi/Punjabi to English)</h1>
-                        <p className="text-sm text-red-600 mb-4">
-                            Important: Translated files are available only during the current session. Download immediately after uploading to avoid losing the file due to server restart.
+                        <p className="text-sm text-gray-600 mb-4">
+                            Note: Translated files are available for download only during the current session. Download immediately after uploading (within 10 minutes), as files expire due to server limitations. Max file size: 2 MB.
                         </p>
                         <div className="mb-4">
                             <label className="block text-sm font-medium text-gray-700">Select Language:</label>
@@ -115,17 +115,16 @@
                                 <h2 className="text-lg font-semibold">Verification Result:</h2>
                                 <p className={verificationResult.is_accurate ? "text-green-500" : "text-red-500"}>
                                     {verificationResult.is_accurate
-                                        ? "Translation conveys the same meaning."
-                                        : "Warning: Translation may differ in meaning."}
+                                        ? "Translation is accurate."
+                                        : "Warning: Translation may have inaccuracies in pronouns."}
                                 </p>
-                                <p>Similarity Score: {(verificationResult.similarity_score * 100).toFixed(2)}%</p>
-                                <p>Original Summary: {verificationResult.original_summary}</p>
-                                <p>Translated Summary: {verificationResult.translated_summary}</p>
+                                <p>Original pronouns: {verificationResult.original_terms.join(", ") || "None"}</p>
+                                <p>Back-translated pronouns: {verificationResult.back_translated_terms.join(", ") || "None"}</p>
                             </div>
                         )}
                         {downloadUrl && (
                             <div className="mt-4">
-                                <p className="text-sm text-red-600 mb-2">Download the translated PDF now to avoid losing it!</p>
+                                <p className="text-sm text-gray-600 mb-2">Download the translated PDF immediately to avoid session expiration.</p>
                                 <a
                                     href={downloadUrl}
                                     download
