@@ -2,58 +2,89 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import pdfplumber
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
-import googletrans
-from googletrans import Translator
+from reportlab.lib.units import inch
+from transformers import MarianTokenizer, MarianMTModel
 import re
-import io
 import os
 import uuid
 import shutil
+import torch
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-translator = Translator()
+# Load translation model
+MODEL_NAME = "Helsinki-NLP/opus-mt-hi-en"
+tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
+model = MarianMTModel.from_pretrained(MODEL_NAME)
+model.eval()  # Set to evaluation mode
 
 # Create files/ folder if it doesn't exist
 FILES_DIR = "files"
 if not os.path.exists(FILES_DIR):
     os.makedirs(FILES_DIR)
 
+def preprocess_text(text):
+    """Clean input text before translation."""
+    text = re.sub(r'\s+', ' ', text.strip())  # Normalize whitespace
+    return text
+
+def translate_text(text, src_lang="hi"):
+    """Translate text using the Hugging Face model."""
+    if src_lang != "hi":  # Only Hindi supported for now
+        return text  # Placeholder for Punjabi (extend later)
+    inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
+    with torch.no_grad():
+        translated = model.generate(**inputs)
+    translated_text = tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
+    return translated_text
+
+def verify_translation(original, translated, src_lang):
+    """Verify pronoun accuracy (simplified for demo)."""
+    original_terms = re.findall(r'\b(she|he|her|him|his)\b', original, re.IGNORECASE)
+    translated_terms = re.findall(r'\b(she|he|her|him|his)\b', translated, re.IGNORECASE)
+    is_accurate = len(original_terms) == len(translated_terms) and all(t1.lower() == t2.lower() for t1, t2 in zip(original_terms, translated_terms))
+    return {
+        "is_accurate": is_accurate,
+        "original_terms": original_terms,
+        "translated_terms": translated_terms
+    }
+
 def extract_text_from_pdf(pdf_file):
     text = ""
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text += page.extract_text() + "\n"
-    return text
-
-def translate_text(text, src_lang, dest_lang="en"):
-    chunks = [text[i:i+5000] for i in range(0, len(text), 5000)]
-    translated = ""
-    for chunk in chunks:
-        result = translator.translate(chunk, src=src_lang, dest=dest_lang)
-        translated += result.text
-    return translated
-
-def verify_translation(original, translated, src_lang):
-    back_translated = translator.translate(translated, src="en", dest=src_lang).text
-    original_terms = re.findall(r'\b(she|he|her|him|his)\b', original, re.IGNORECASE)
-    back_terms = re.findall(r'\b(she|he|her|him|his)\b', back_translated, re.IGNORECASE)
-    is_accurate = len(original_terms) == len(back_terms) and all(t1.lower() == t2.lower() for t1, t2 in zip(original_terms, back_terms))
-    return {
-        "is_accurate": is_accurate,
-        "original_terms": original_terms,
-        "back_translated_terms": back_terms
-    }
+    return preprocess_text(text)
 
 def create_pdf(text, output_path):
-    doc = SimpleDocTemplate(output_path, pagesize=letter)
+    doc = SimpleDocTemplate(output_path, pagesize=letter, leftMargin=0.75*inch, rightMargin=0.75*inch, topMargin=1*inch, bottomMargin=1*inch)
     styles = getSampleStyleSheet()
+    normal = styles["BodyText"]
+    heading = styles["Heading1"]
     story = []
-    for line in text.split("\n"):
-        story.append(Paragraph(line, styles["BodyText"]))
+
+    # Structure the letter
+    lines = text.split("\n")
+    for line in lines:
+        line = line.strip()
+        if not line:
+            story.append(Spacer(1, 0.2*inch))
+            continue
+        if line.startswith("Date:"):
+            story.append(Paragraph(line, normal))
+        elif line.startswith("Varisha") or line.startswith("+91") or "@" in line:
+            story.append(Paragraph(line, normal))
+        elif line.startswith("Dear"):
+            story.append(Paragraph(line, heading))
+        elif line.startswith("Sincerely") or line == "Keshav" or line == "Founder":
+            story.append(Paragraph(line, normal))
+        else:
+            story.append(Paragraph(line, normal))
+        story.append(Spacer(1, 0.1*inch))
+
     doc.build(story)
 
 @app.route("/", methods=["GET"])
