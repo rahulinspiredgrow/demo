@@ -6,50 +6,85 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import inch
 from transformers import MarianTokenizer, MarianMTModel
+from sentence_transformers import SentenceTransformer, util
 import re
 import os
 import uuid
-import shutil
 import torch
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
 # Load translation model
-MODEL_NAME = "Helsinki-NLP/opus-mt-hi-en"
-tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
-model = MarianMTModel.from_pretrained(MODEL_NAME)
-model.eval()  # Set to evaluation mode
+try:
+    MODEL_NAME = "Helsinki-NLP/opus-mt-hi-en"
+    tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
+    model = MarianMTModel.from_pretrained(MODEL_NAME)
+    model.eval()
+except Exception as e:
+    print(f"Error loading translation model: {str(e)}")
+    raise
 
-# Create files/ folder if it doesn't exist
+# Load sentence transformer for similarity
+try:
+    SIMILARITY_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+    similarity_model = SentenceTransformer(SIMILARITY_MODEL)
+except Exception as e:
+    print(f"Error loading similarity model: {str(e)}")
+    raise
+
+# Create files/ folder
 FILES_DIR = "files"
 if not os.path.exists(FILES_DIR):
     os.makedirs(FILES_DIR)
 
 def preprocess_text(text):
-    """Clean input text before translation."""
-    text = re.sub(r'\s+', ' ', text.strip())  # Normalize whitespace
+    """Clean input text."""
+    text = re.sub(r'\s+', ' ', text.strip())
     return text
 
+def summarize_text(text):
+    """Rule-based summarization: extract first sentence of each paragraph."""
+    paragraphs = text.split("\n")
+    summary = []
+    for para in paragraphs:
+        sentences = re.split(r'[.!?]', para)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        if sentences:
+            summary.append(sentences[0])
+    return " ".join(summary)
+
 def translate_text(text, src_lang="hi"):
-    """Translate text using the Hugging Face model."""
-    if src_lang != "hi":  # Only Hindi supported for now
-        return text  # Placeholder for Punjabi (extend later)
-    inputs = tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=512)
-    with torch.no_grad():
-        translated = model.generate(**inputs)
-    translated_text = tokenizer.batch_decode(translated, skip_special_tokens=True)[0]
-    return translated_text
+    """Translate text using Hugging Face model."""
+    if src_lang != "hi":  # Placeholder for Punjabi
+        return text
+    chunks = [text[i:i+500] for i in range(0, len(text), 500)]
+    translated = []
+    for chunk in chunks:
+        inputs = tokenizer(chunk, return_tensors="pt", padding=True, truncation=True, max_length=512)
+        with torch.no_grad():
+            translated_ids = model.generate(**inputs)
+        translated.append(tokenizer.batch_decode(translated_ids, skip_special_tokens=True)[0])
+    return " ".join(translated)
 
 def verify_translation(original, translated, src_lang):
-    """Verify pronoun accuracy (simplified for demo)."""
-    original_terms = re.findall(r'\b(she|he|her|him|his)\b', original, re.IGNORECASE)
-    translated_terms = re.findall(r'\b(she|he|her|him|his)\b', translated, re.IGNORECASE)
-    is_accurate = len(original_terms) == len(translated_terms) and all(t1.lower() == t2.lower() for t1, t2 in zip(original_terms, translated_terms))
+    """Compare summaries for semantic similarity."""
+    original_summary = summarize_text(original)
+    translated_summary = summarize_text(translated)
+    
+    # Compute embeddings
+    original_embedding = similarity_model.encode(original_summary, convert_to_tensor=True)
+    translated_embedding = similarity_model.encode(translated_summary, convert_to_tensor=True)
+    
+    # Cosine similarity
+    similarity = util.cos_sim(original_embedding, translated_embedding).item()
+    is_accurate = similarity >= 0.85
+    
     return {
         "is_accurate": is_accurate,
-        "original_terms": original_terms,
-        "translated_terms": translated_terms
+        "similarity_score": similarity,
+        "original_summary": original_summary,
+        "translated_summary": translated_summary
     }
 
 def extract_text_from_pdf(pdf_file):
@@ -66,7 +101,6 @@ def create_pdf(text, output_path):
     heading = styles["Heading1"]
     story = []
 
-    # Structure the letter
     lines = text.split("\n")
     for line in lines:
         line = line.strip()
@@ -120,7 +154,7 @@ def upload_file():
     progress.append("Verifying translation accuracy...")
     verification_result = verify_translation(original_text, translated_text, lang)
     if not verification_result["is_accurate"]:
-        progress.append("Warning: Translation may have inaccuracies in pronouns.")
+        progress.append("Warning: Translation summaries may differ in meaning.")
     else:
         progress.append("Translation verified successfully.")
 
