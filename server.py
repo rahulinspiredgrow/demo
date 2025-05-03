@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, send_file
+from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import pdfplumber
 from reportlab.lib.pagesizes import letter
@@ -12,7 +12,7 @@ import sqlite3
 import uuid
 import os
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
 translator = Translator()
@@ -58,6 +58,10 @@ def create_pdf(text):
     doc.build(story)
     buffer.seek(0)
     return buffer
+
+@app.route("/", methods=["GET"])
+def serve_index():
+    return send_from_directory('.', 'index.html')
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
