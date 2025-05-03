@@ -4,97 +4,107 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>PDF Translator</title>
-    <script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.development.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/babel-standalone@7/babel.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.25.6/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
 <body>
-    <div id="root"></div>
+    <div id="root">Loading...</div>
     <script type="text/babel">
-        function App() {
-            const [file, setFile] = React.useState(null);
-            const [progress, setProgress] = React.useState([]);
-            const [downloadUrl, setDownloadUrl] = React.useState(null);
-            const [error, setError] = React.useState(null);
+        try {
+            function App() {
+                const [file, setFile] = React.useState(null);
+                const [progress, setProgress] = React.useState([]);
+                const [downloadUrl, setDownloadUrl] = React.useState(null);
+                const [error, setError] = React.useState(null);
 
-            const handleFileChange = (event) => {
-                setFile(event.target.files[0]);
-                setProgress([]);
-                setDownloadUrl(null);
-                setError(null);
-            };
+                const handleFileChange = (event) => {
+                    setFile(event.target.files[0]);
+                    setProgress([]);
+                    setDownloadUrl(null);
+                    setError(null);
+                };
 
-            const handleUpload = async () => {
-                if (!file) {
-                    setError("Please select a file.");
-                    return;
-                }
-
-                const formData = new FormData();
-                formData.append("file", file);
-
-                setProgress(["Uploading file..."]);
-                try {
-                    const response = await fetch("/upload", {
-                        method: "POST",
-                        body: formData,
-                    });
-
-                    if (!response.ok) {
-                        throw new Error("Upload failed.");
+                const handleUpload = async () => {
+                    if (!file) {
+                        setError("Please select a file.");
+                        return;
                     }
 
-                    const result = await response.json();
-                    setProgress(result.progress);
-                    setDownloadUrl(result.download_url);
-                } catch (err) {
-                    setError("Error: " + err.message);
-                }
-            };
+                    const formData = new FormData();
+                    formData.append("file", file);
 
-            return (
-                <div className="container mx-auto p-4">
-                    <h1 className="text-2xl font-bold mb-4">PDF Translator (Hindi/Punjabi to English)</h1>
-                    <input
-                        type="file"
-                        accept=".pdf"
-                        onChange={handleFileChange}
-                        className="mb-4 p-2 border rounded"
-                    />
-                    <button
-                        onClick={handleUpload}
-                        className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
-                    >
-                        Upload and Translate
-                    </button>
-                    {error && <p className="text-red-500 mt-2">{error}</p>}
-                    {progress.length > 0 && (
-                        <div className="mt-4">
-                            <h2 className="text-lg font-semibold">Processing Steps:</h2>
-                            <ul className="list-disc pl-5">
-                                {progress.map((step, index) => (
-                                    <li key={index}>{step}</li>
-                                ))}
-                            </ul>
-                        </div>
-                    )}
-                    {downloadUrl && (
-                        <div className="mt-4">
-                            <a
-                                href={downloadUrl}
-                                download
-                                className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
-                            >
-                                Download Translated PDF
-                            </a>
-                        </div>
-                    )}
+                    setProgress(["Uploading file..."]);
+                    try {
+                        const response = await fetch("/upload", {
+                            method: "POST",
+                            body: formData,
+                        });
+
+                        if (!response.ok) {
+                            throw new Error("Upload failed.");
+                        }
+
+                        const result = await response.json();
+                        setProgress(result.progress);
+                        setDownloadUrl(result.download_url);
+                    } catch (err) {
+                        setError("Error: " + err.message);
+                    }
+                };
+
+                return (
+                    <div className="container mx-auto p-4">
+                        <h1 className="text-2xl font-bold mb-4">PDF Translator (Hindi/Punjabi to English)</h1>
+                        <input
+                            type="file"
+                            accept=".pdf"
+                            onChange={handleFileChange}
+                            className="mb-4 p-2 border rounded"
+                        />
+                        <button
+                            onClick={handleUpload}
+                            className="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600"
+                        >
+                            Upload and Translate
+                        </button>
+                        {error && <p className="text-red-500 mt-2">{error}</p>}
+                        {progress.length > 0 && (
+                            <div className="mt-4">
+                                <h2 className="text-lg font-semibold">Processing Steps:</h2>
+                                <ul className="list-disc pl-5">
+                                    {progress.map((step, index) => (
+                                        <li key={index}>{step}</li>
+                                    ))}
+                                </ul>
+                            </div>
+                        )}
+                        {downloadUrl && (
+                            <div className="mt-4">
+                                <a
+                                    href={downloadUrl}
+                                    download
+                                    className="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600"
+                                >
+                                    Download Translated PDF
+                                </a>
+                            </div>
+                        )}
+                    </div>
+                );
+            }
+
+            ReactDOM.render(<App />, document.getElementById("root"));
+        } catch (e) {
+            console.error("React rendering failed:", e);
+            document.getElementById("root").innerHTML = `
+                <div class="container mx-auto p-4 text-red-500">
+                    <h1>Error Loading Application</h1>
+                    <p>Something went wrong while loading the app. Please check the browser console for details or try refreshing the page.</p>
                 </div>
-            );
+            `;
         }
-
-        ReactDOM.render(<App />, document.getElementById("root"));
     </script>
 </body>
 </html>
