@@ -8,24 +8,19 @@ import googletrans
 from googletrans import Translator
 import re
 import io
-import sqlite3
-import uuid
 import os
+import uuid
+import shutil
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
 translator = Translator()
 
-# Initialize SQLite database
-def init_db():
-    conn = sqlite3.connect(":memory:")  # In-memory DB for Render free tier
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS files (id TEXT PRIMARY KEY, content BLOB, translated_content TEXT)''')
-    conn.commit()
-    return conn
-
-conn = init_db()
+# Create files/ folder if it doesn't exist
+FILES_DIR = "files"
+if not os.path.exists(FILES_DIR):
+    os.makedirs(FILES_DIR)
 
 def extract_text_from_pdf(pdf_file):
     text = ""
@@ -53,16 +48,13 @@ def verify_translation(original, translated, src_lang):
         "back_translated_terms": back_terms
     }
 
-def create_pdf(text):
-    buffer = io.BytesIO()
-    doc = SimpleDocTemplate(buffer, pagesize=letter)
+def create_pdf(text, output_path):
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
     styles = getSampleStyleSheet()
     story = []
     for line in text.split("\n"):
         story.append(Paragraph(line, styles["BodyText"]))
     doc.build(story)
-    buffer.seek(0)
-    return buffer
 
 @app.route("/", methods=["GET"])
 def serve_index():
@@ -80,12 +72,14 @@ def upload_file():
         return jsonify({"error": "Invalid language selected. Choose Hindi or Punjabi."}), 400
 
     file_id = str(uuid.uuid4())
-    file_content = file.read()
+    original_path = os.path.join(FILES_DIR, f"{file_id}_original.pdf")
+    translated_path = os.path.join(FILES_DIR, f"{file_id}_translated.pdf")
+    file.save(original_path)
     progress.append("File uploaded successfully.")
 
     # Extract text
     progress.append("Extracting text from PDF...")
-    original_text = extract_text_from_pdf(io.BytesIO(file_content))
+    original_text = extract_text_from_pdf(original_path)
 
     # Translate
     progress.append(f"Translating from {lang == 'hi' and 'Hindi' or 'Punjabi'} to English...")
@@ -99,15 +93,9 @@ def upload_file():
     else:
         progress.append("Translation verified successfully.")
 
-    # Store in SQLite
-    try:
-        c = conn.cursor()
-        c.execute("INSERT INTO files (id, content, translated_content) VALUES (?, ?, ?)",
-                  (file_id, file_content, translated_text))
-        conn.commit()
-        progress.append("File stored successfully.")
-    except sqlite3.Error as e:
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
+    # Create translated PDF
+    progress.append("Generating translated PDF...")
+    create_pdf(translated_text, translated_path)
 
     return jsonify({
         "progress": progress,
@@ -117,17 +105,11 @@ def upload_file():
 
 @app.route("/download/<file_id>", methods=["GET"])
 def download_file(file_id):
-    try:
-        c = conn.cursor()
-        c.execute("SELECT translated_content FROM files WHERE id = ?", (file_id,))
-        result = c.fetchone()
-        if not result:
-            return jsonify({"error": "File not available. It may have expired due to server restart. Please upload again."}), 404
+    translated_path = os.path.join(FILES_DIR, f"{file_id}_translated.pdf")
+    if not os.path.exists(translated_path):
+        return jsonify({"error": "File not available. It may have expired due to server restart. Please upload again."}), 404
 
-        pdf_buffer = create_pdf(result[0])
-        return send_file(pdf_buffer, as_attachment=True, download_name=f"translated_{file_id}.pdf")
-    except sqlite3.Error as e:
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
+    return send_file(translated_path, as_attachment=True, download_name=f"translated_{file_id}.pdf")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
