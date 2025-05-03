@@ -93,14 +93,14 @@ def upload_file():
     progress.append("Translation verified successfully.")
 
     # Store in SQLite
-    c = conn.cursor()
-    c.execute("INSERT INTO files (id, content, translated_content) VALUES (?, ?, ?)",
-              (file_id, file_content, translated_text))
-    conn.commit()
-
-    # Create translated PDF
-    progress.append("Creating translated PDF...")
-    pdf_buffer = create_pdf(translated_text)
+    try:
+        c = conn.cursor()
+        c.execute("INSERT INTO files (id, content, translated_content) VALUES (?, ?, ?)",
+                  (file_id, file_content, translated_text))
+        conn.commit()
+        progress.append("File stored successfully.")
+    except sqlite3.Error as e:
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
     return jsonify({
         "progress": progress,
@@ -109,14 +109,17 @@ def upload_file():
 
 @app.route("/download/<file_id>", methods=["GET"])
 def download_file(file_id):
-    c = conn.cursor()
-    c.execute("SELECT translated_content FROM files WHERE id = ?", (file_id,))
-    result = c.fetchone()
-    if not result:
-        return jsonify({"error": "File not found"}), 404
+    try:
+        c = conn.cursor()
+        c.execute("SELECT translated_content FROM files WHERE id = ?", (file_id,))
+        result = c.fetchone()
+        if not result:
+            return jsonify({"error": "File not available. It may have expired due to server restart. Please upload again."}), 404
 
-    pdf_buffer = create_pdf(result[0])
-    return send_file(pdf_buffer, as_attachment=True, download_name=f"translated_{file_id}.pdf")
+        pdf_buffer = create_pdf(result[0])
+        return send_file(pdf_buffer, as_attachment=True, download_name=f"translated_{file_id}.pdf")
+    except sqlite3.Error as e:
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
