@@ -1,1 +1,6 @@
-Flask==2.3.3 Flask-Cors==4.0.0 pdfplumber==0.10.2 reportlab==4.0.4 googletrans==4.0.0-rc1 gunicorn==21.2.0
+Flask==2.3.3
+Flask-Cors==4.0.0
+pdfplumber==0.10.2
+reportlab==4.0.4
+googletrans==4.0.0-rc1
+gunicorn==21.2.0
