@@ -2,123 +2,88 @@ from flask import Flask, request, jsonify, send_file, send_from_directory
 from flask_cors import CORS
 import pdfplumber
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.units import inch
-from transformers import MarianTokenizer, MarianMTModel
-from sentence_transformers import SentenceTransformer, util
+from transformers import MarianMTModel, MarianTokenizer
 import re
 import os
 import uuid
+import shutil
+import time
 import torch
 
 app = Flask(__name__, static_folder='.', static_url_path='')
 CORS(app)
 
-# Load translation model
-try:
-    MODEL_NAME = "Helsinki-NLP/opus-mt-hi-en"
-    tokenizer = MarianTokenizer.from_pretrained(MODEL_NAME)
-    model = MarianMTModel.from_pretrained(MODEL_NAME)
-    model.eval()
-except Exception as e:
-    print(f"Error loading translation model: {str(e)}")
-    raise
+# Load translation models (Hindi and Punjabi to English)
+MODEL_PATHS = {
+    "hi": "Helsinki-NLP/opus-mt-hi-en",
+    "pa": "Helsinki-NLP/opus-mt-pa-en"
+}
+models = {}
+tokenizers = {}
+for lang in MODEL_PATHS:
+    models[lang] = MarianMTModel.from_pretrained(MODEL_PATHS[lang])
+    tokenizers[lang] = MarianTokenizer.from_pretrained(MODEL_PATHS[lang])
 
-# Load sentence transformer for similarity
-try:
-    SIMILARITY_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
-    similarity_model = SentenceTransformer(SIMILARITY_MODEL)
-except Exception as e:
-    print(f"Error loading similarity model: {str(e)}")
-    raise
-
-# Create files/ folder
+# Create files/ folder if it doesn't exist
 FILES_DIR = "files"
 if not os.path.exists(FILES_DIR):
     os.makedirs(FILES_DIR)
 
-def preprocess_text(text):
-    """Clean input text."""
-    text = re.sub(r'\s+', ' ', text.strip())
-    return text
-
-def summarize_text(text):
-    """Rule-based summarization: extract first sentence of each paragraph."""
-    paragraphs = text.split("\n")
-    summary = []
-    for para in paragraphs:
-        sentences = re.split(r'[.!?]', para)
-        sentences = [s.strip() for s in sentences if s.strip()]
-        if sentences:
-            summary.append(sentences[0])
-    return " ".join(summary)
-
-def translate_text(text, src_lang="hi"):
-    """Translate text using Hugging Face model."""
-    if src_lang != "hi":  # Placeholder for Punjabi
-        return text
-    chunks = [text[i:i+500] for i in range(0, len(text), 500)]
-    translated = []
-    for chunk in chunks:
-        inputs = tokenizer(chunk, return_tensors="pt", padding=True, truncation=True, max_length=512)
-        with torch.no_grad():
-            translated_ids = model.generate(**inputs)
-        translated.append(tokenizer.batch_decode(translated_ids, skip_special_tokens=True)[0])
-    return " ".join(translated)
-
-def verify_translation(original, translated, src_lang):
-    """Compare summaries for semantic similarity."""
-    original_summary = summarize_text(original)
-    translated_summary = summarize_text(translated)
-    
-    # Compute embeddings
-    original_embedding = similarity_model.encode(original_summary, convert_to_tensor=True)
-    translated_embedding = similarity_model.encode(translated_summary, convert_to_tensor=True)
-    
-    # Cosine similarity
-    similarity = util.cos_sim(original_embedding, translated_embedding).item()
-    is_accurate = similarity >= 0.85
-    
-    return {
-        "is_accurate": is_accurate,
-        "similarity_score": similarity,
-        "original_summary": original_summary,
-        "translated_summary": translated_summary
-    }
+# Clean up old files (older than 10 minutes)
+def cleanup_files():
+    now = time.time()
+    for filename in os.listdir(FILES_DIR):
+        file_path = os.path.join(FILES_DIR, filename)
+        if os.path.isfile(file_path) and (now - os.path.getmtime(file_path)) > 600:
+            os.remove(file_path)
 
 def extract_text_from_pdf(pdf_file):
     text = ""
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text += page.extract_text() + "\n"
-    return preprocess_text(text)
+    return text
+
+def translate_text(text, src_lang):
+    tokenizer = tokenizers[src_lang]
+    model = models[src_lang]
+    # Split text into sentences for better translation
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    translated = []
+    for sentence in sentences:
+        if sentence.strip():
+            inputs = tokenizer(sentence, return_tensors="pt", padding=True, truncation=True, max_length=512)
+            with torch.no_grad():
+                translated_ids = model.generate(**inputs)
+            translated_sentence = tokenizer.decode(translated_ids[0], skip_special_tokens=True)
+            translated.append(translated_sentence)
+    return " ".join(translated)
+
+def verify_translation(original, translated, src_lang):
+    # Back-translate for verification
+    back_model = MarianMTModel.from_pretrained(f"Helsinki-NLP/opus-mt-en-{src_lang}")
+    back_tokenizer = MarianTokenizer.from_pretrained(f"Helsinki-NLP/opus-mt-en-{src_lang}")
+    inputs = back_tokenizer(translated, return_tensors="pt", padding=True, truncation=True, max_length=512)
+    with torch.no_grad():
+        back_ids = back_model.generate(**inputs)
+    back_translated = back_tokenizer.decode(back_ids[0], skip_special_tokens=True)
+    original_terms = re.findall(r'\b(she|he|her|him|his)\b', original, re.IGNORECASE)
+    back_terms = re.findall(r'\b(she|he|her|him|his)\b', back_translated, re.IGNORECASE)
+    is_accurate = len(original_terms) == len(back_terms) and all(t1.lower() == t2.lower() for t1, t2 in zip(original_terms, back_terms))
+    return {
+        "is_accurate": is_accurate,
+        "original_terms": original_terms,
+        "back_translated_terms": back_terms
+    }
 
 def create_pdf(text, output_path):
-    doc = SimpleDocTemplate(output_path, pagesize=letter, leftMargin=0.75*inch, rightMargin=0.75*inch, topMargin=1*inch, bottomMargin=1*inch)
+    doc = SimpleDocTemplate(output_path, pagesize=letter)
     styles = getSampleStyleSheet()
-    normal = styles["BodyText"]
-    heading = styles["Heading1"]
     story = []
-
-    lines = text.split("\n")
-    for line in lines:
-        line = line.strip()
-        if not line:
-            story.append(Spacer(1, 0.2*inch))
-            continue
-        if line.startswith("Date:"):
-            story.append(Paragraph(line, normal))
-        elif line.startswith("Varisha") or line.startswith("+91") or "@" in line:
-            story.append(Paragraph(line, normal))
-        elif line.startswith("Dear"):
-            story.append(Paragraph(line, heading))
-        elif line.startswith("Sincerely") or line == "Keshav" or line == "Founder":
-            story.append(Paragraph(line, normal))
-        else:
-            story.append(Paragraph(line, normal))
-        story.append(Spacer(1, 0.1*inch))
-
+    for line in text.split("\n"):
+        story.append(Paragraph(line, styles["BodyText"]))
     doc.build(story)
 
 @app.route("/", methods=["GET"])
@@ -127,6 +92,7 @@ def serve_index():
 
 @app.route("/upload", methods=["POST"])
 def upload_file():
+    cleanup_files()  # Clean up old files
     progress = []
     if "file" not in request.files or "language" not in request.form:
         return jsonify({"error": "File and language selection are required"}), 400
@@ -135,6 +101,13 @@ def upload_file():
     lang = request.form["language"]
     if lang not in ["hi", "pa"]:
         return jsonify({"error": "Invalid language selected. Choose Hindi or Punjabi."}), 400
+
+    # Check file size (limit to 2 MB)
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    if file_size > 2 * 1024 * 1024:
+        return jsonify({"error": "File size exceeds 2 MB limit."}), 400
+    file.seek(0)
 
     file_id = str(uuid.uuid4())
     original_path = os.path.join(FILES_DIR, f"{file_id}_original.pdf")
@@ -154,7 +127,7 @@ def upload_file():
     progress.append("Verifying translation accuracy...")
     verification_result = verify_translation(original_text, translated_text, lang)
     if not verification_result["is_accurate"]:
-        progress.append("Warning: Translation summaries may differ in meaning.")
+        progress.append("Warning: Translation may have inaccuracies in pronouns.")
     else:
         progress.append("Translation verified successfully.")
 
