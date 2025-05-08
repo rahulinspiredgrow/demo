@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>PDF Translator</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>PDF Translation Service</h1>
+        <form action="/translate" method="post" enctype="multipart/form-data">
+            <div class="upload-area">
+                <input type="file" name="file" accept=".pdf" required>
+                <button type="submit">Translate</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>
