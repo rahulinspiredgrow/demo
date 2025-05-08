@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Translation Results</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>Translation Results</h1>
+        
+        <div class="result-section">
+            <h2>Original Text (Hindi)</h2>
+            <div class="text-box">{{ original_text }}</div>
+            
+            <h2>Translated Text (English)</h2>
+            <div class="text-box">{{ translated_text }}</div>
+            
+            <h2>Summaries</h2>
+            <div class="summary-section">
+                <h3>Hindi Summary</h3>
+                <div class="text-box">{{ hindi_summary }}</div>
+                
+                <h3>English Summary</h3>
+                <div class="text-box">{{ english_summary }}</div>
+            </div>
+        </div>
+        
+        <div class="download-section">
+            <a href="{{ url_for('static', filename='result.pdf') }}" class="download-btn">Download PDF</a>
+            <a href="/" class="back-btn">Translate Another Document</a>
+        </div>
+    </div>
+</body>
+</html>
